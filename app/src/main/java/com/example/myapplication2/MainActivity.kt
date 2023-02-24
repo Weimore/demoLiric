@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         mBinding?.btnSearch?.setOnClickListener {
             handler.post(runnable)
         }
+        highLightStr()
     }
 
     override fun onDestroy() {
@@ -115,8 +116,8 @@ class MainActivity : AppCompatActivity() {
             }
             builder.append(spanString)
         }
-        mBinding?.tvContent?.text = builder.toString()
         mBinding?.tvContent?.movementMethod = LinkMovementMethod.getInstance()
+        mBinding?.tvContent?.text = builder
     }
 
     private fun highStr(hlStr: String, srcString: String) {

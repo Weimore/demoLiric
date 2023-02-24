@@ -48,7 +48,7 @@ public class ClickHighLightSpan extends ClickableSpan implements ParcelableSpan 
     @Override
     public void updateDrawState(@NonNull TextPaint ds) {
         super.updateDrawState(ds);
-        ds.bgColor = Color.parseColor("#0000FFF");
+        ds.bgColor = Color.parseColor("#0000FF");
     }
 
     /**
