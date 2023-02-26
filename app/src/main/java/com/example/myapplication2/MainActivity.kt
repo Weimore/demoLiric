@@ -1,79 +1,130 @@
 package com.example.myapplication2
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.Message
-import android.text.SpannableString
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
-import android.text.style.BackgroundColorSpan
-import android.text.style.ForegroundColorSpan
-import android.text.style.URLSpan
+import android.util.Log
 import android.view.View
-import android.view.View.OnClickListener
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.example.myapplication2.data.ReadData
+import com.example.myapplication2.data.WordData
 import com.example.myapplication2.databinding.ActivityMainBinding
+import com.example.myapplication2.span.ClickHighLightSpan
+import com.example.myapplication2.span.ClickSpan
+import com.example.myapplication2.view.VerticalSeekBar.OnStateChangeListener
 import com.google.gson.Gson
 import com.google.gson.JsonArray
-import com.google.gson.reflect.TypeToken
-import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.io.InputStream
-import java.io.UnsupportedEncodingException
 import java.util.*
 
 
 class MainActivity : AppCompatActivity() {
 
-    interface TimeChangeListener {
-        fun timeChange(duration: Int)
-    }
-
     private var mBinding: ActivityMainBinding? = null
+
+    //当前播放时间
     private var curTime = 0L
 
+    //高亮分组index
+    private var highLightIndex = 0
+
+    //总时长
+    private var totalTime = 0L
+
     companion object {
+        //间隔时间
         const val INTERVAL_DURATION = 100L
     }
 
     private var handler: Handler =
         @SuppressLint("HandlerLeak") object : Handler(Looper.myLooper()!!) {}
-    private val list = arrayListOf<ReadData>()
+    private val list = arrayListOf<WordData>()
 
 
     private val runnable = object : Runnable {
         override fun run() {
-            if (curTime >= FakerData.duration) {
+            if (curTime >= totalTime) {
                 curTime = 0L
             } else {
                 curTime += INTERVAL_DURATION
             }
-            highLightStr()
+            changeProgress()
+            val wordData = list[(highLightIndex) % list.size]
+            if (curTime >= wordData.endTime) {
+                highLightStr(list[(highLightIndex + 1) % list.size])
+            }
             handler.postDelayed(this, INTERVAL_DURATION)
         }
+    }
+
+    private fun changeProgress() {
+        mBinding?.progressBar?.setProgress(curTime * 100f / totalTime)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(mBinding?.root)
-        val jsonStr = readAssets2String(this, "fakeData.json")
+        mBinding?.btnStartEnd?.setOnClickListener {
+            if (mBinding?.btnStartEnd?.isSelected == false) {
+                handler.post(runnable)
+                mBinding?.btnStartEnd?.text = "暂停"
+                mBinding?.btnStartEnd?.isSelected = true
+            } else {
+                mBinding?.btnStartEnd?.text = "开始"
+                handler.removeCallbacks(runnable)
+                mBinding?.btnStartEnd?.isSelected = false
+            }
+        }
+        mBinding?.progressBar?.setOnStateChangeListener(object : OnStateChangeListener {
+            override fun onStartTouch(view: View?) {}
+
+            override fun onStateChangeListener(
+                view: View?,
+                progress: Float,
+                indicatorOffset: Float
+            ) {
+                //拖动进度条
+                curTime = (totalTime * 0.01 * progress).toLong()
+                for (index in 0 until  list.size) {
+                    if (curTime < list[index].endTime) {
+                        highLightStr(list[index])
+                        break
+                    }
+                }
+            }
+
+            override fun onStopTrackingTouch(view: View?, progress: Float) {
+                //拖动进度条
+                curTime = (totalTime * 0.01 * progress).toLong()
+                for (index in 0 until  list.size) {
+                    if (curTime < list[index].endTime) {
+                        highLightStr(list[index])
+                        break
+                    }
+                }
+            }
+        })
+        val jsonStr = FileUtil.readAssets2String(this, "fakeData.json")
+        var index = 0
+        var wordIndex = 0
         Gson().fromJson(jsonStr, JsonArray::class.java).forEach { action ->
             val data = Gson().fromJson(action, ReadData::class.java)
-            list.add(data)
+            val wordData = WordData()
+            wordData.word = data.word
+            wordData.startTime = data.startTime
+            wordData.endTime = data.endTime
+            wordData.index = index
+            wordData.startWordIndex = wordIndex
+            list.add(wordData)
+            index++
+            wordIndex += data.word.length
         }
-        FakerData.duration = list.last().time
-        mBinding?.tvContent?.text = FakerData.content
-        mBinding?.btnSearch?.setOnClickListener {
-            handler.post(runnable)
-        }
-        highLightStr()
+        totalTime = list.last().endTime
+        initStr()
     }
 
     override fun onDestroy() {
@@ -81,106 +132,59 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(runnable)
     }
 
-
-    private fun highLightStr() {
-        mBinding?.tvContent?.text = ""
+    //初始化str
+    private fun initStr() {
         val builder = SpannableStringBuilder()
-        var highLightIndex = -1
         for (index in 0 until list.size) {
             val data = list[index]
-            val spanString = SpannableString(data.text)
-            if (curTime < list[index].time && highLightIndex == -1) {
-                highLightIndex = 0
-                //需要高亮
-                spanString.setSpan(
-                    ClickHighLightSpan {
-                        Toast.makeText(this, data.text, Toast.LENGTH_SHORT).show()
-                    },
-                    0,
-                    data.text.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            } else {
-                //不需要高亮
-                spanString.setSpan(
-                    ClickSpan {
-                        Toast.makeText(this, data.text, Toast.LENGTH_SHORT).show()
-                        //点击后高亮
-                        curTime = data.time
-                        highLightStr()
-                    },
-                    0,
-                    data.text.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            builder.append(spanString)
+            //不需要高亮
+            builder.append(
+                data.word,
+                ClickSpan {
+                    //点击后高亮
+                    curTime = data.startTime
+                    changeProgress()
+                    highLightStr(data)
+                },
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
         }
         mBinding?.tvContent?.movementMethod = LinkMovementMethod.getInstance()
         mBinding?.tvContent?.text = builder
     }
 
-    private fun highStr(hlStr: String, srcString: String) {
-        mBinding?.tvContent?.text = ""
-        val hlLower = hlStr.lowercase(Locale.getDefault())
-        val spannableString = SpannableString(srcString)
-        for (i in 0..srcString.length - hlStr.length) {
-            if (srcString.substring(i, i + hlStr.length)
-                    .lowercase(Locale.getDefault()) == hlLower
-            ) {
-                spannableString.setSpan(
-                    ForegroundColorSpan(Color.RED),
-                    i,
-                    i + hlStr.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                spannableString.setSpan(
-                    BackgroundColorSpan(Color.YELLOW),
-                    i,
-                    i + hlStr.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
+    //高亮str
+    private fun highLightStr(highLightData: WordData) {
+        Log.d("word", "word:" + highLightData.word)
+        val spannableString = SpannableStringBuilder(mBinding?.tvContent?.text)
+        if (highLightIndex >= 0) {
+            //将之前的高亮点击span重置为普通点击span
+            val beforeHighLightData = list[highLightIndex]
+            spannableString.setSpan(
+                ClickSpan {
+                    //点击后高亮
+                    curTime = beforeHighLightData.startTime
+                    changeProgress()
+                    highLightStr(beforeHighLightData)
+                },
+                beforeHighLightData.startWordIndex,
+                beforeHighLightData.endWordIndex,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
         }
-        mBinding?.tvContent?.append(spannableString)
-    }
-
-    fun readAssets2String(context: Context, assetsFilePath: String): String? {
-        return try {
-            val `is`: InputStream = context.resources.assets.open(assetsFilePath)
-            val bytes: ByteArray = input2OutputStream(`is`)?.toByteArray() ?: return ""
-            try {
-                String(bytes)
-            } catch (e: UnsupportedEncodingException) {
-                e.printStackTrace()
-                ""
-            }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            ""
-        }
-    }
-
-    private fun input2OutputStream(`is`: InputStream?): ByteArrayOutputStream? {
-        return if (`is` == null) null else try {
-            val os = ByteArrayOutputStream()
-            val b = ByteArray(8192)
-            var len: Int
-            while (`is`.read(b, 0, 8192).also {
-                    len = it
-                } != -1) {
-                os.write(b, 0, len)
-            }
-            os
-        } catch (e: IOException) {
-            e.printStackTrace()
-            null
-        } finally {
-            try {
-                `is`.close()
-            } catch (e: IOException) {
-                e.printStackTrace()
-            }
-        }
+        //设置新的高亮点击span
+        spannableString.setSpan(
+            ClickHighLightSpan {
+                //点击后高亮
+                curTime = highLightData.startTime
+                changeProgress()
+                highLightStr(highLightData)
+            },
+            highLightData.startWordIndex,
+            highLightData.endWordIndex,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        highLightIndex = highLightData.index
+        mBinding?.tvContent?.text = spannableString
     }
 }
